@@ -1,0 +1,90 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: portal-warga-app
+    restart: unless-stopped
+    working_dir: /var/www/html
+    volumes:
+      - ./storage:/var/www/html/storage
+      - ./docker/nginx.conf:/etc/nginx/http.d/default.conf
+      - ./docker/supervisor.conf:/etc/supervisor.d/portal-warga.ini
+    ports:
+      - "80:80"
+    networks:
+      - portal-network
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  queue-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: portal-warga-queue
+    restart: unless-stopped
+    working_dir: /var/www/html
+    volumes:
+      - ./storage:/var/www/html/storage
+    command: php artisan queue:work redis --sleep=3 --tries=3 --max-time=3600
+    networks:
+      - portal-network
+    depends_on:
+      - app
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: portal-warga-scheduler
+    restart: unless-stopped
+    working_dir: /var/www/html
+    command: php artisan schedule:work
+    networks:
+      - portal-network
+    depends_on:
+      - app
+
+  mysql:
+    image: mysql:8.4
+    container_name: portal-warga-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: portal_warga
+      MYSQL_USER: portal_warga_user
+      MYSQL_PASSWORD: GantiDenganPasswordKuat
+      MYSQL_ROOT_PASSWORD: RootPasswordKuat
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - portal-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      retries: 3
+      timeout: 5s
+
+  redis:
+    image: redis:7-alpine
+    container_name: portal-warga-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - portal-network
+
+networks:
+  portal-network:
+    driver: bridge
+
+volumes:
+  mysql-data:
+  redis-data:
